@@ -13,14 +13,14 @@ class HolisticIndexBlock(nn.Module):
                  use_context=False,
                  batch_norm=None):
         super(HolisticIndexBlock, self).__init__()
-
+        
         BatchNorm2d = batch_norm
-
+        
         if use_context:
             kernel_size, padding = 4, 1
         else:
             kernel_size, padding = 2, 0
-
+        
         if use_nonlinear:
             self.indexnet = nn.Sequential(
                 nn.Conv2d(inp,
@@ -43,17 +43,17 @@ class HolisticIndexBlock(nn.Module):
                                       stride=2,
                                       padding=padding,
                                       bias=False)
-
+    
     # 输入inf 通道输出 idx_en 和idx_de
     def forward(self, x):
         x = self.indexnet(x)
-
+        
         y = torch.sigmoid(x)
         z = F.softmax(y, dim=1)
-
+        
         idx_en = F.pixel_shuffle(z, 2)
         idx_de = F.pixel_shuffle(y, 2)
-
+        
         return idx_en, idx_de
 
 
@@ -69,7 +69,7 @@ class ConvX(nn.Module):
                               bias=False)
         self.bn = nn.BatchNorm2d(out_planes)
         self.relu = nn.ReLU(inplace=True)
-
+    
     def forward(self, x):
         out = self.relu(self.bn(self.conv(x)))
         return out
@@ -105,7 +105,7 @@ class AddBottleneck(nn.Module):
                 nn.BatchNorm2d(out_planes),
             )
             stride = 1
-
+        
         for idx in range(block_num):
             if idx == 0:
                 self.conv_list.append(
@@ -124,21 +124,21 @@ class AddBottleneck(nn.Module):
                 self.conv_list.append(
                     ConvX(out_planes // int(math.pow(2, idx)),
                           out_planes // int(math.pow(2, idx))))
-
+    
     def forward(self, x):
         out_list = []
         out = x
-
+        
         for idx, conv in enumerate(self.conv_list):
             if idx == 0 and self.stride == 2:
                 out = self.avd_layer(conv(out))
             else:
                 out = conv(out)
             out_list.append(out)
-
+        
         if self.stride == 2:
             x = self.skip(x)
-
+        
         return torch.cat(out_list, dim=1) + x
 
 
@@ -161,7 +161,7 @@ class CatBottleneck(nn.Module):
             )
             self.skip = nn.AvgPool2d(kernel_size=3, stride=2, padding=1)
             stride = 1
-
+        
         for idx in range(block_num):
             if idx == 0:
                 self.conv_list.append(
@@ -180,11 +180,11 @@ class CatBottleneck(nn.Module):
                 self.conv_list.append(
                     ConvX(out_planes // int(math.pow(2, idx)),
                           out_planes // int(math.pow(2, idx))))
-
+    
     def forward(self, x):
         out_list = []
         out1 = self.conv_list[0](x)
-
+        
         for idx, conv in enumerate(self.conv_list[1:]):
             if idx == 0:
                 if self.stride == 2:
@@ -194,11 +194,11 @@ class CatBottleneck(nn.Module):
             else:
                 out = conv(out)
             out_list.append(out)
-
+        
         if self.stride == 2:
             out1 = self.skip(out1)
         out_list.insert(0, out1)
-
+        
         out = torch.cat(out_list, dim=1)
         return out
 
@@ -219,10 +219,10 @@ class STDCNet1446(nn.Module):
             block = CatBottleneck
         elif type == "add":
             block = AddBottleneck
-
+        
         # index net 包后面引入
-        index_block = HolisticIndexBlock
-        BatchNorm2d = nn.BatchNorm2d
+        self.index_block = HolisticIndexBlock(32)
+        
         self.use_conv_last = use_conv_last
         # 此为conx到最小的块
         self.features = self._make_layers(base, layers, block_num, block)
@@ -235,41 +235,28 @@ class STDCNet1446(nn.Module):
         self.relu = nn.ReLU(inplace=True)
         self.dropout = nn.Dropout(p=dropout)
         self.linear = nn.Linear(max(1024, base * 16), num_classes, bias=False)
-
+        
         self.x2 = nn.Sequential(self.features[:1])
         self.x4 = nn.Sequential(self.features[1:2])
         self.x8 = nn.Sequential(self.features[2:6])
         self.x16 = nn.Sequential(self.features[6:11])
         self.x32 = nn.Sequential(self.features[11:])
-
-        self.index0 = index_block(base // 2,
-                                  use_nonlinear=True,
-                                  use_context=True,
-                                  batch_norm=BatchNorm2d)
-        self.index1 = index_block(base,
-                                  use_context=True,
-                                  use_nonlinear=True,
-                                  batch_norm=BatchNorm2d)
-        self.index2 = index_block(base * 4,
-                                  use_context=True,
-                                  use_nonlinear=True,
-                                  batch_norm=BatchNorm2d)
-
+        
         if pretrain_model:
             print('use pretrain model {}'.format(pretrain_model))
             self.init_weight(pretrain_model)
         else:
             self.init_params()
-
+    
     # 解析预训练包
     def init_weight(self, pretrain_model):
-
+        
         state_dict = torch.load(pretrain_model)["state_dict"]
         self_state_dict = self.state_dict()
         for k, v in state_dict.items():
             self_state_dict.update({k: v})
         self.load_state_dict(self_state_dict)
-
+    
     def init_params(self):
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -283,12 +270,12 @@ class STDCNet1446(nn.Module):
                 init.normal_(m.weight, std=0.001)
                 if m.bias is not None:
                     init.constant_(m.bias, 0)
-
+    
     def _make_layers(self, base, layers, block_num, block):
         features = []
         features += [ConvX(3, base // 2, 3, 2)]  # channal 64 -> 8
         features += [ConvX(base // 2, base, 3, 2)]  # channal 8-> 64
-
+        
         for i, layer in enumerate(layers):
             for j in range(layer):
                 if i == 0 and j == 0:
@@ -301,34 +288,28 @@ class STDCNet1446(nn.Module):
                     features.append(
                         block(base * int(math.pow(2, i + 2)),
                               base * int(math.pow(2, i + 2)), block_num, 1))
-
+        
         return nn.Sequential(*features)
-
+    
     # 在此处添加
-
+    
     def forward(self, x):
         # /2
         feat2 = self.x2(x)
-        # 生成index
-        idx0_en, idx0_de = self.index0(feat2)
-        # 点乘
-        idx_feat2 = idx0_en * feat2
-
+        # 产生Index map
+        de, en = self.index_block(feat2)
+        feat2 = torch.mul(feat2, de)
         # /4
-        feat4 = self.x4(idx_feat2)
-        idx1_en, idx1_de = self.index1(feat4)
-        idx_feat4 = idx1_en * feat4
-
-        feat8 = self.x8(idx_feat4)
-        idx2_en, idx2_de = self.index2(feat8)
-        idx_feat8 = idx2_en * feat8
-        feat16 = self.x16(idx_feat8)
+        feat4 = self.x4(feat2)
+        
+        feat8 = self.x8(feat4)
+        feat16 = self.x16(feat8)
         feat32 = self.x32(feat16)
         if self.use_conv_last:
             feat32 = self.conv_last(feat32)
-
-        return feat2, feat4, feat8, feat16, feat32, idx0_de, idx1_de, idx2_de
-
+        
+        return feat2, feat4, feat8, feat16, feat32, en
+    
     def forward_impl(self, x):
         out = self.features(x)
         out = self.conv_last(out).pow(2)
@@ -370,27 +351,27 @@ class STDCNet813(nn.Module):
         self.relu = nn.ReLU(inplace=True)
         self.dropout = nn.Dropout(p=dropout)
         self.linear = nn.Linear(max(1024, base * 16), num_classes, bias=False)
-
+        
         self.x2 = nn.Sequential(self.features[:1])
         self.x4 = nn.Sequential(self.features[1:2])
         self.x8 = nn.Sequential(self.features[2:4])
         self.x16 = nn.Sequential(self.features[4:6])
         self.x32 = nn.Sequential(self.features[6:])
-
+        
         if pretrain_model:
             print('use pretrain model {}'.format(pretrain_model))
             self.init_weight(pretrain_model)
         else:
             self.init_params()
-
+    
     def init_weight(self, pretrain_model):
-
+        
         state_dict = torch.load(pretrain_model)["state_dict"]
         self_state_dict = self.state_dict()
         for k, v in state_dict.items():
             self_state_dict.update({k: v})
         self.load_state_dict(self_state_dict)
-
+    
     def init_params(self):
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -404,7 +385,7 @@ class STDCNet813(nn.Module):
                 init.normal_(m.weight, std=0.001)
                 if m.bias is not None:
                     init.constant_(m.bias, 0)
-
+    
     def _make_layers(self, base, layers, block_num, block):
         features = []
         # 生成Stage1&2
@@ -424,9 +405,9 @@ class STDCNet813(nn.Module):
                     features.append(
                         block(base * int(math.pow(2, i + 2)),
                               base * int(math.pow(2, i + 2)), block_num, 1))
-
+        
         return nn.Sequential(*features)
-
+    
     def forward(self, x):
         feat2 = self.x2(x)
         feat4 = self.x4(feat2)
@@ -435,9 +416,9 @@ class STDCNet813(nn.Module):
         feat32 = self.x32(feat16)
         if self.use_conv_last:
             feat32 = self.conv_last(feat32)
-
+        
         return feat2, feat4, feat8, feat16, feat32
-
+    
     def forward_impl(self, x):
         out = self.features(x)
         out = self.conv_last(out).pow(2)
@@ -452,9 +433,8 @@ class STDCNet813(nn.Module):
 
 
 if __name__ == "__main__":
-    model = STDCNet813(num_classes=1000, dropout=0.00, block_num=4)
+    model = STDCNet1446(num_classes=1000, dropout=0.00, block_num=4)
     model.eval()
     x = torch.randn(1, 3, 224, 224)
     y = model(x)
-    torch.save(model.state_dict(), 'cat.pth')
-    print(y.size())
+    # print(y)

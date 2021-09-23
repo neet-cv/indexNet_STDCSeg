@@ -7,11 +7,12 @@ import torch.nn.functional as F
 
 from nets.stdcnet import STDCNet1446, STDCNet813
 
-
 # from modules.bn import InPlaceABNSync as BatchNorm2d
 
 
-# BatchNorm2d = nn.BatchNorm2d
+BatchNorm2d = nn.BatchNorm2d
+
+
 # ConvX??
 class ConvBNReLU(nn.Module):
     def __init__(self,
@@ -164,7 +165,7 @@ class ContextPath(nn.Module):
     def forward(self, x):
         H0, W0 = x.size()[2:]
         
-        feat2, feat4, feat8, feat16, feat32 = self.backbone(x)
+        feat2, feat4, feat8, feat16, feat32, en = self.backbone(x)
         H8, W8 = feat8.size()[2:]
         H16, W16 = feat16.size()[2:]
         H32, W32 = feat32.size()[2:]
@@ -173,7 +174,6 @@ class ContextPath(nn.Module):
         
         avg = self.conv_avg(avg)
         avg_up = F.interpolate(avg, (H32, W32), mode='nearest')
-        
         feat32_arm = self.arm32(feat32)
         feat32_sum = feat32_arm + avg_up
         feat32_up = F.interpolate(feat32_sum, (H16, W16), mode='nearest')
@@ -184,7 +184,7 @@ class ContextPath(nn.Module):
         feat16_up = F.interpolate(feat16_sum, (H8, W8), mode='nearest')
         feat16_up = self.conv_head16(feat16_up)
         
-        return feat2, feat4, feat8, feat16, feat16_up, feat32_up  # x8, x16
+        return feat2, feat4, feat8, feat16, feat16_up, feat32_up, en  # x8, x16
     
     def init_weight(self):
         for ly in self.children():
@@ -315,7 +315,7 @@ class BiSeNet(nn.Module):
     def forward(self, x):
         H, W = x.size()[2:]
         
-        feat_res2, feat_res4, feat_res8, feat_res16, feat_cp8, feat_cp16 = self.cp(
+        feat_res2, feat_res4, feat_res8, feat_res16, feat_cp8, feat_cp16, en = self.cp(
             x)
         
         feat_out_sp2 = self.conv_out_sp2(feat_res2)
@@ -331,6 +331,9 @@ class BiSeNet(nn.Module):
         feat_out = self.conv_out(feat_fuse)
         feat_out16 = self.conv_out16(feat_cp8)
         feat_out32 = self.conv_out32(feat_cp16)
+        
+        feat_out = F.interpolate(feat_out, (H / 2, W / 2), mode='bilinear', align_corners=True)
+        feat_out = torch.mul(feat_out, en)
         
         feat_out = F.interpolate(feat_out, (H, W),
                                  mode='bilinear',
@@ -380,10 +383,8 @@ class BiSeNet(nn.Module):
 
 
 if __name__ == "__main__":
-    net = BiSeNet('STDCNet813', 19)
-    net.cuda()
+    net = BiSeNet('STDCNet1446', 19)
     net.eval()
-    in_ten = torch.randn(1, 3, 768, 1536).cuda()
+    in_ten = torch.randn(1, 3, 768, 1536)
     out, out16, out32 = net(in_ten)
     print(out.shape)
-    torch.save(net.state_dict(), 'STDCNet813.pth')
