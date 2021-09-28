@@ -221,8 +221,9 @@ class STDCNet1446(nn.Module):
             block = AddBottleneck
         
         # index net 包后面引入
-        self.index_block = HolisticIndexBlock(32)
-        
+        self.index_block_0 = HolisticIndexBlock(32)
+        self.index_block_1 = HolisticIndexBlock(64)
+        self.index_block_2 = HolisticIndexBlock(256)
         self.use_conv_last = use_conv_last
         # 此为conx到最小的块
         self.features = self._make_layers(base, layers, block_num, block)
@@ -297,18 +298,23 @@ class STDCNet1446(nn.Module):
         # /2
         feat2 = self.x2(x)
         # 产生Index map
-        de, en = self.index_block(feat2)
+        de, en = self.index_block_0(feat2)
         feat2 = torch.mul(feat2, de)
         # /4
         feat4 = self.x4(feat2)
+        de2, en2 = self.index_block_1(feat4)
+        feat4 = torch.mul(feat4, de2)
         
         feat8 = self.x8(feat4)
+        de3, en3 = self.index_block_2(feat8)
+        feat8 = torch.mul(feat8, de3)
+        
         feat16 = self.x16(feat8)
         feat32 = self.x32(feat16)
         if self.use_conv_last:
             feat32 = self.conv_last(feat32)
         
-        return feat2, feat4, feat8, feat16, feat32, en
+        return feat2, feat4, feat8, feat16, feat32, en, en2, en3
     
     def forward_impl(self, x):
         out = self.features(x)

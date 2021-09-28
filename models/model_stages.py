@@ -15,21 +15,16 @@ BatchNorm2d = nn.BatchNorm2d
 
 # ConvX??
 class ConvBNReLU(nn.Module):
-    def __init__(self,
-                 in_chan,
-                 out_chan,
-                 ks=3,
-                 stride=1,
-                 padding=1,
-                 *args,
-                 **kwargs):
+    def __init__(self, in_chan, out_chan, ks=3, stride=1, padding=1, *args, **kwargs):
         super(ConvBNReLU, self).__init__()
-        self.conv = nn.Conv2d(in_chan,
-                              out_chan,
-                              kernel_size=ks,
-                              stride=stride,
-                              padding=padding,
-                              bias=False)
+        self.conv = nn.Conv2d(
+            in_chan,
+            out_chan,
+            kernel_size=ks,
+            stride=stride,
+            padding=padding,
+            bias=False,
+        )
         # self.bn = BatchNorm2d(out_chan)
         self.bn = nn.BatchNorm2d(out_chan)
         self.relu = nn.ReLU()
@@ -53,10 +48,7 @@ class BiSeNetOutput(nn.Module):
     def __init__(self, in_chan, mid_chan, n_classes, *args, **kwargs):
         super(BiSeNetOutput, self).__init__()
         self.conv = ConvBNReLU(in_chan, mid_chan, ks=3, stride=1, padding=1)
-        self.conv_out = nn.Conv2d(mid_chan,
-                                  n_classes,
-                                  kernel_size=1,
-                                  bias=False)
+        self.conv_out = nn.Conv2d(mid_chan, n_classes, kernel_size=1, bias=False)
         self.init_weight()
     
     def forward(self, x):
@@ -87,10 +79,7 @@ class AttentionRefinementModule(nn.Module):
     def __init__(self, in_chan, out_chan, *args, **kwargs):
         super(AttentionRefinementModule, self).__init__()
         self.conv = ConvBNReLU(in_chan, out_chan, ks=3, stride=1, padding=1)
-        self.conv_atten = nn.Conv2d(out_chan,
-                                    out_chan,
-                                    kernel_size=1,
-                                    bias=False)
+        self.conv_atten = nn.Conv2d(out_chan, out_chan, kernel_size=1, bias=False)
         # self.bn_atten = BatchNorm2d(out_chan)
         self.bn_atten = nn.BatchNorm2d(out_chan)
         
@@ -116,18 +105,21 @@ class AttentionRefinementModule(nn.Module):
 
 # ContextPaht的路
 class ContextPath(nn.Module):
-    def __init__(self,
-                 backbone='CatNetSmall',
-                 pretrain_model='',
-                 use_conv_last=False,
-                 *args,
-                 **kwargs):
+    def __init__(
+            self,
+            backbone="CatNetSmall",
+            pretrain_model="",
+            use_conv_last=False,
+            *args,
+            **kwargs
+    ):
         super(ContextPath, self).__init__()
         
         self.backbone_name = backbone
-        if backbone == 'STDCNet1446':
-            self.backbone = STDCNet1446(pretrain_model=pretrain_model,
-                                        use_conv_last=use_conv_last)
+        if backbone == "STDCNet1446":
+            self.backbone = STDCNet1446(
+                pretrain_model=pretrain_model, use_conv_last=use_conv_last
+            )
             self.arm16 = AttentionRefinementModule(512, 128)
             inplanes = 1024
             if use_conv_last:
@@ -135,15 +127,12 @@ class ContextPath(nn.Module):
             self.arm32 = AttentionRefinementModule(inplanes, 128)
             self.conv_head32 = ConvBNReLU(128, 128, ks=3, stride=1, padding=1)
             self.conv_head16 = ConvBNReLU(128, 128, ks=3, stride=1, padding=1)
-            self.conv_avg = ConvBNReLU(inplanes,
-                                       128,
-                                       ks=1,
-                                       stride=1,
-                                       padding=0)
+            self.conv_avg = ConvBNReLU(inplanes, 128, ks=1, stride=1, padding=0)
         
-        elif backbone == 'STDCNet813':
-            self.backbone = STDCNet813(pretrain_model=pretrain_model,
-                                       use_conv_last=use_conv_last)
+        elif backbone == "STDCNet813":
+            self.backbone = STDCNet813(
+                pretrain_model=pretrain_model, use_conv_last=use_conv_last
+            )
             self.arm16 = AttentionRefinementModule(512, 128)
             inplanes = 1024
             if use_conv_last:
@@ -151,11 +140,7 @@ class ContextPath(nn.Module):
             self.arm32 = AttentionRefinementModule(inplanes, 128)
             self.conv_head32 = ConvBNReLU(128, 128, ks=3, stride=1, padding=1)
             self.conv_head16 = ConvBNReLU(128, 128, ks=3, stride=1, padding=1)
-            self.conv_avg = ConvBNReLU(inplanes,
-                                       128,
-                                       ks=1,
-                                       stride=1,
-                                       padding=0)
+            self.conv_avg = ConvBNReLU(inplanes, 128, ks=1, stride=1, padding=0)
         else:
             print("backbone is not in backbone lists")
             exit(0)
@@ -165,7 +150,7 @@ class ContextPath(nn.Module):
     def forward(self, x):
         H0, W0 = x.size()[2:]
         
-        feat2, feat4, feat8, feat16, feat32, en = self.backbone(x)
+        feat2, feat4, feat8, feat16, feat32, en, en2, en3 = self.backbone(x)
         H8, W8 = feat8.size()[2:]
         H16, W16 = feat16.size()[2:]
         H32, W32 = feat32.size()[2:]
@@ -173,18 +158,28 @@ class ContextPath(nn.Module):
         avg = F.avg_pool2d(feat32, feat32.size()[2:])
         
         avg = self.conv_avg(avg)
-        avg_up = F.interpolate(avg, (H32, W32), mode='nearest')
+        avg_up = F.interpolate(avg, (H32, W32), mode="nearest")
         feat32_arm = self.arm32(feat32)
         feat32_sum = feat32_arm + avg_up
-        feat32_up = F.interpolate(feat32_sum, (H16, W16), mode='nearest')
+        feat32_up = F.interpolate(feat32_sum, (H16, W16), mode="nearest")
         feat32_up = self.conv_head32(feat32_up)
         
         feat16_arm = self.arm16(feat16)
         feat16_sum = feat16_arm + feat32_up
-        feat16_up = F.interpolate(feat16_sum, (H8, W8), mode='nearest')
+        feat16_up = F.interpolate(feat16_sum, (H8, W8), mode="nearest")
         feat16_up = self.conv_head16(feat16_up)
         
-        return feat2, feat4, feat8, feat16, feat16_up, feat32_up, en  # x8, x16
+        return (
+            feat2,
+            feat4,
+            feat8,
+            feat16,
+            feat16_up,
+            feat32_up,
+            en,
+            en2,
+            en3,
+        )  # x8, x16
     
     def init_weight(self):
         for ly in self.children():
@@ -209,18 +204,12 @@ class FeatureFusionModule(nn.Module):
     def __init__(self, in_chan, out_chan, *args, **kwargs):
         super(FeatureFusionModule, self).__init__()
         self.convblk = ConvBNReLU(in_chan, out_chan, ks=1, stride=1, padding=0)
-        self.conv1 = nn.Conv2d(out_chan,
-                               out_chan // 4,
-                               kernel_size=1,
-                               stride=1,
-                               padding=0,
-                               bias=False)
-        self.conv2 = nn.Conv2d(out_chan // 4,
-                               out_chan,
-                               kernel_size=1,
-                               stride=1,
-                               padding=0,
-                               bias=False)
+        self.conv1 = nn.Conv2d(
+            out_chan, out_chan // 4, kernel_size=1, stride=1, padding=0, bias=False
+        )
+        self.conv2 = nn.Conv2d(
+            out_chan // 4, out_chan, kernel_size=1, stride=1, padding=0, bias=False
+        )
         self.relu = nn.ReLU(inplace=True)
         self.sigmoid = nn.Sigmoid()
         self.init_weight()
@@ -257,18 +246,20 @@ class FeatureFusionModule(nn.Module):
 
 
 class BiSeNet(nn.Module):
-    def __init__(self,
-                 backbone,
-                 n_classes,
-                 pretrain_model='',
-                 use_boundary_2=False,
-                 use_boundary_4=False,
-                 use_boundary_8=False,
-                 use_boundary_16=False,
-                 use_conv_last=False,
-                 heat_map=False,
-                 *args,
-                 **kwargs):
+    def __init__(
+            self,
+            backbone,
+            n_classes,
+            pretrain_model="",
+            use_boundary_2=False,
+            use_boundary_4=False,
+            use_boundary_8=False,
+            use_boundary_16=False,
+            use_conv_last=False,
+            heat_map=False,
+            *args,
+            **kwargs
+    ):
         super(BiSeNet, self).__init__()
         
         self.use_boundary_2 = use_boundary_2
@@ -276,11 +267,9 @@ class BiSeNet(nn.Module):
         self.use_boundary_8 = use_boundary_8
         self.use_boundary_16 = use_boundary_16
         # self.heat_map = heat_map
-        self.cp = ContextPath(backbone,
-                              pretrain_model,
-                              use_conv_last=use_conv_last)
+        self.cp = ContextPath(backbone, pretrain_model, use_conv_last=use_conv_last)
         
-        if backbone == 'STDCNet1446':
+        if backbone == "STDCNet1446":
             conv_out_inplanes = 128
             sp2_inplanes = 32
             sp4_inplanes = 64
@@ -288,7 +277,7 @@ class BiSeNet(nn.Module):
             sp16_inplanes = 512
             inplane = sp8_inplanes + conv_out_inplanes
         
-        elif backbone == 'STDCNet813':
+        elif backbone == "STDCNet813":
             conv_out_inplanes = 128
             sp2_inplanes = 32
             sp4_inplanes = 64
@@ -315,8 +304,17 @@ class BiSeNet(nn.Module):
     def forward(self, x):
         H, W = x.size()[2:]
         
-        feat_res2, feat_res4, feat_res8, feat_res16, feat_cp8, feat_cp16, en = self.cp(
-            x)
+        (
+            feat_res2,
+            feat_res4,
+            feat_res8,
+            feat_res16,
+            feat_cp8,
+            feat_cp16,
+            en,
+            en2,
+            en3,
+        ) = self.cp(x)
         
         feat_out_sp2 = self.conv_out_sp2(feat_res2)
         
@@ -332,34 +330,54 @@ class BiSeNet(nn.Module):
         feat_out16 = self.conv_out16(feat_cp8)
         feat_out32 = self.conv_out32(feat_cp16)
         
-        feat_out = F.interpolate(feat_out, (H / 2, W / 2), mode='bilinear', align_corners=True)
+        feat_out = F.interpolate(
+            feat_out, (H / 2, W / 2), mode="bilinear", align_corners=True
+        )
+        # 辅助上采样
         feat_out = torch.mul(feat_out, en)
+        feat_out = F.interpolate(feat_out, (H, W), mode="bilinear", align_corners=True)
         
-        feat_out = F.interpolate(feat_out, (H, W),
-                                 mode='bilinear',
-                                 align_corners=True)
+        feat_out16 = F.interpolate(
+            feat_out16, (H / 4, W / 4), mode="bilinear", align_corners=True
+        )
+        feat_out16 = torch.mul(feat_out16, en2)
+        feat_out16 = F.interpolate(
+            feat_out16, (H, W), mode="bilinear", align_corners=True
+        )
         
-        feat_out16 = F.interpolate(feat_out16, (H, W),
-                                   mode='bilinear',
-                                   align_corners=True)
-        
-        feat_out32 = F.interpolate(feat_out32, (H, W),
-                                   mode='bilinear',
-                                   align_corners=True)
+        feat_out32 = F.interpolate(
+            feat_out32, (H / 8, W / 8), mode="bilinear", align_corners=True
+        )
+        feat_out32 = torch.mul(feat_out32, en3)
+        feat_out32 = F.interpolate(
+            feat_out32, (H, W), mode="bilinear", align_corners=True
+        )
         
         if self.use_boundary_2 and self.use_boundary_4 and self.use_boundary_8:
-            return feat_out, feat_out16, feat_out32, feat_out_sp2, feat_out_sp4, feat_out_sp8
+            return (
+                feat_out,
+                feat_out16,
+                feat_out32,
+                feat_out_sp2,
+                feat_out_sp4,
+                feat_out_sp8,
+            )
         
-        if (not self.use_boundary_2
-        ) and self.use_boundary_4 and self.use_boundary_8:
+        if (not self.use_boundary_2) and self.use_boundary_4 and self.use_boundary_8:
             return feat_out, feat_out16, feat_out32, feat_out_sp4, feat_out_sp8
         
-        if (not self.use_boundary_2) and (
-                not self.use_boundary_4) and self.use_boundary_8:
+        if (
+                (not self.use_boundary_2)
+                and (not self.use_boundary_4)
+                and self.use_boundary_8
+        ):
             return feat_out, feat_out16, feat_out32, feat_out_sp8
         
-        if (not self.use_boundary_2) and (not self.use_boundary_4) and (
-                not self.use_boundary_8):
+        if (
+                (not self.use_boundary_2)
+                and (not self.use_boundary_4)
+                and (not self.use_boundary_8)
+        ):
             return feat_out, feat_out16, feat_out32
     
     def init_weight(self):
@@ -383,7 +401,7 @@ class BiSeNet(nn.Module):
 
 
 if __name__ == "__main__":
-    net = BiSeNet('STDCNet1446', 19)
+    net = BiSeNet("STDCNet1446", 19)
     net.eval()
     in_ten = torch.randn(1, 3, 768, 1536)
     out, out16, out32 = net(in_ten)
